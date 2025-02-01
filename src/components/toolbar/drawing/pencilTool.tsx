@@ -16,7 +16,6 @@ interface PencilToolProps {
 }
 
 const PencilTool: React.FC<PencilToolProps> = ({ lines, selectedId }) => {
-  console.log('pencil tool data', lines);
   // function handleSelection(id: string) {
   //   setSelectedId({ id: id, type: 'pencil' });
   // }

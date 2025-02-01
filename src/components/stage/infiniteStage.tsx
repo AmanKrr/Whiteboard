@@ -1,6 +1,6 @@
 'use client';
 import useInfiniteStage from '@/hooks/useInfiniteStage';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Stage, Layer, Text } from 'react-konva';
 import PencilTool from '../toolbar/drawing/pencilTool';
 import { useDrawing } from '@/hooks/useDrawing';
@@ -11,6 +11,9 @@ import ToolOptions from '../toolbar/drawing/toolOptions';
 import RectangleTool from '../toolbar/drawing/rectangleTool';
 import CircleTool from '../toolbar/drawing/circleTool';
 import ArrowTool from '../toolbar/drawing/arrowTool';
+// import TextTool from '../toolbar/drawing/textTools';
+import { useWebSocket } from '@/hooks/useWebsockets';
+import { debounce } from 'lodash';
 
 interface InfiniteStageProps {
   selectedTool: ToolType;
@@ -20,20 +23,43 @@ interface InfiniteStageProps {
 
 function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: InfiniteStageProps) {
   // State to track stage position
+  const { sendMessage, remoteLines } = useWebSocket();
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const { selectedId, setSelectedId } = useSelection();
   const { strokeWidth, setStrokeWidth, setColor, color } = useToolOptions();
   const { scale, stageRef, handleWheel } = useInfiniteStage(setStagePos);
-  const { pencilLines, rectangles, circles, arrows, texts, startDrawing, continueDrawing, stopDrawing, updateDrawing } = useDrawing();
+  const { pencilLines, rectangles, circles, arrows, texts, startDrawing, continueDrawing, stopDrawing, updateDrawing, undo, redo } = useDrawing(sendMessage);
 
   // Function to update position when the stage moves (panning)
   // const handleDragMove = (e: any) => {
   //   const stage = e.target.getStage()
   //   if (stage) {
-  //     console.log('here moving')
   //     setStagePos({ x: stage.x(), y: stage.y() })
   //   }
   // }
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Check for Ctrl (Windows) or Meta (Mac) pressed
+      const ctrlOrMeta = e.ctrlKey || e.metaKey;
+      const shift = e.shiftKey;
+
+      if (ctrlOrMeta && !shift && e.key.toLowerCase() === 'z') {
+        // Ctrl + Z or Cmd + Z => Undo
+        e.preventDefault();
+        undo();
+      } else if ((ctrlOrMeta && e.key.toLowerCase() === 'y') || (ctrlOrMeta && shift && e.key.toLowerCase() === 'z')) {
+        // Ctrl + Y or Ctrl + Shift + Z => Redo
+        e.preventDefault();
+        redo();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [undo, redo]);
 
   const mousePoint = useMemo(() => {
     return getCursorStyle(selectedTool);
@@ -56,7 +82,6 @@ function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: Infini
     const pointer = stage.getPointerPosition();
     const [localX, localY] = getExactDrawCoordintaesAfterPan(stage, pointer);
     if (!pointer) return;
-    console.log('e', e);
 
     switch (selectedTool) {
       case 'pan':
@@ -84,17 +109,16 @@ function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: Infini
     }
   };
 
-  const handleMouseMove = (e: any) => {
+  const handleMouseMove = debounce((e: any) => {
     const stage = e.target.getStage();
     const pointer = stage.getPointerPosition();
     const [localX, localY] = getExactDrawCoordintaesAfterPan(stage, pointer);
     if (!pointer) return;
 
     continueDrawing(localX, localY);
-  };
+  }, 14);
 
   function getCursorStyle(selectedTool: ToolType) {
-    console.log('get cursosr: ', selectedTool);
     switch (selectedTool) {
       case 'pencil':
         return 'url(/assets/mouse/pencil.svg) 6 26, auto'; // Custom pencil cursor
@@ -111,28 +135,32 @@ function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: Infini
     }
   }
 
-  console.log('InfiniteStage re-rendered', mousePoint);
-
-  function handleOnColorChange(color: string) {
+  const handleOnColorChange = debounce((color: string) => {
     const { id, type } = selectedId;
     if (id && type) {
       updateDrawing(id, type, color);
     }
     setColor(color);
-  }
+  }, 80);
 
-  function handleStrokeWidthChange(strokeWidth: number) {
+  const handleStrokeWidthChange = debounce((strokeWidth: number) => {
     const { id, type } = selectedId;
     if (id && type) {
       updateDrawing(id, type, null, strokeWidth);
     }
     setStrokeWidth(strokeWidth);
-  }
+  }, 80);
 
   return (
     <>
       {['pencil', 'line', 'rectangle', 'circle', 'arrow', 'select'].includes(selectedTool) && (
-        <ToolOptions color={color} strokeWidth={strokeWidth} onColorChange={handleOnColorChange} onStrokeWidthChange={handleStrokeWidthChange} />
+        <>
+          {selectedTool == 'select' && !selectedId['id'] ? (
+            <></>
+          ) : (
+            <ToolOptions color={color} strokeWidth={strokeWidth} onColorChange={handleOnColorChange} onStrokeWidthChange={handleStrokeWidthChange} />
+          )}
+        </>
       )}
       <Stage
         className='bg-white'
@@ -170,10 +198,11 @@ function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: Infini
              - Additional shapes that users create, manipulate, etc.
         */}
         <Layer id='drawing-layer'>
-          <PencilTool lines={pencilLines} setSelectedId={setSelectedId} selectedId={selectedId['id']} />
+          <PencilTool lines={[...pencilLines, ...remoteLines]} setSelectedId={setSelectedId} selectedId={selectedId['id']} />
           <RectangleTool rectangles={rectangles} setSelectedId={setSelectedId} selectedId={selectedId['id']} />
           <CircleTool circles={circles} setSelectedId={setSelectedId} selectedId={selectedId['id']} />
           <ArrowTool arrows={arrows} setSelectedId={setSelectedId} selectedId={selectedId['id']} />
+          {/* <TextTool selectedId={selectedId['id']} setSelectedId={setSelectedId} texts={texts} onTextDoubleClick={handleTextDoubleClick} /> */}
           {/* <ImageTool images={images} setSelectedId={setSelectedId} selectedId={selectedId} />
           <CommentTool comments={comments} setSelectedId={setSelectedId} selectedId={selectedId} /> */}
         </Layer>
@@ -194,6 +223,7 @@ function InfiniteStage({ selectedTool, isDraggable, onTextNodeCreation }: Infini
           <Text x={100} y={50} text='Drag to pan | Scroll to zoom' fontSize={24} fill='#333' />
         </Layer>
       </Stage>
+      {/* <TextEditor isEditing={!!editingTextId} position={inputPosition} value={inputValue} onChange={handleTextChange} onSave={handleTextSave} /> */}
     </>
   );
 }

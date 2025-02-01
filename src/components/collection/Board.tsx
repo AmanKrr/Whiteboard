@@ -9,7 +9,6 @@ const InfiniteStage = dynamic(() => import('../stage/infiniteStage'), { ssr: fal
 
 function Board() {
   const { isDraggable, selectedTool, handleOnToolSelection } = useToolSelection();
-  console.log('Board re-rendered');
 
   return (
     <div className='relative h-screen w-full overflow-hidden bg-gray-100'>

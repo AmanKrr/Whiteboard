@@ -1,5 +1,4 @@
 type ToolType = 'select' | 'pan' | 'pencil' | 'eraser' | 'shapes' | 'rectangle' | 'circle' | 'arrow' | 'line' | 'text' | 'image' | 'comment';
-
 interface DrawingTools {
   id: number;
   label: string;
@@ -77,3 +76,49 @@ type CommentType = BaseShape & {
   text: string;
   fontSize: number;
 };
+
+type SocketData = {
+  mouseEvent: 'MouseDown' | 'MouseUp' | 'MouseMove';
+  tool?: ToolType;
+  x: number;
+  y: number;
+  color?: string;
+  strokeWidth?: number;
+};
+
+/* 
+  We unify shape references in state with separate arrays.
+  If you want even more optimization, you could store all shapes in a single array,
+  but for clarity, we'll keep them separate as you do now.
+*/
+interface DrawingState {
+  pencilLines: LineType[];
+  rectangles: RectangleType[];
+  circles: CircleType[];
+  arrows: ArrowType[];
+  texts: TextType[];
+  images: ImageType[];
+  comments: CommentType[];
+}
+
+/* ========================
+   Undo/Redo Action Types
+======================== */
+type UndoRedoAction =
+  | {
+      type: 'add';
+      shapeType: keyof DrawingState;
+      shape: LineType | RectangleType | CircleType | ArrowType | TextType | ImageType | CommentType; // final shape after creation
+    }
+  | {
+      type: 'update';
+      shapeType: keyof DrawingState;
+      shapeId: string;
+      oldValue: Partial<BaseShape>;
+      newValue: Partial<BaseShape>;
+    }
+  | {
+      type: 'delete';
+      shapeType: keyof DrawingState;
+      shape: BaseShape;
+    };

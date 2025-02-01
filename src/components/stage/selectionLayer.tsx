@@ -15,6 +15,7 @@ interface SelectionLayerProps {
 
 const SelectionLayer: React.FC<SelectionLayerProps> = ({ shapes, selectedId, selectedTool, setColor, setStrokeWidth }) => {
   const transformerRef = useRef<any>(null);
+  const currentSelectedNode = useRef<any>(null);
 
   useEffect(() => {
     if (!transformerRef.current) return;
@@ -22,7 +23,6 @@ const SelectionLayer: React.FC<SelectionLayerProps> = ({ shapes, selectedId, sel
       transformerRef.current.nodes([]);
       return;
     }
-    console.log('id =========>', selectedId);
 
     // Find the selected shape in the provided list
     // const selectedShape = shapes.find(shape => shape.id === selectedId);
@@ -52,6 +52,9 @@ const SelectionLayer: React.FC<SelectionLayerProps> = ({ shapes, selectedId, sel
     // Find the selected node in Konva's stage
     const stage = transformerRef.current.getStage();
     const selectedNode = stage.findOne(`#${selectedId['id']}`);
+    if (selectedId['type'] === 'text') {
+      currentSelectedNode.current = selectedNode;
+    }
 
     if (selectedNode) {
       // ✅ Custom Transformer Styles
@@ -73,9 +76,7 @@ const SelectionLayer: React.FC<SelectionLayerProps> = ({ shapes, selectedId, sel
   if (selectedTool != 'select') return;
 
   return (
-    <Layer>
-      <Transformer ref={transformerRef} />
-    </Layer>
+    <Layer>{selectedId['type'] == 'text' ? <Transformer ref={transformerRef} enabledAnchors={['middle-left', 'middle-right']} /> : <Transformer ref={transformerRef} />}</Layer>
   );
 };
 
