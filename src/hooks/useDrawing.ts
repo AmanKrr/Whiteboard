@@ -1,6 +1,7 @@
 'use client';
 import { debounce } from 'lodash';
 import { useState, useRef } from 'react';
+import * as msgpack from '@msgpack/msgpack';
 import { v4 as uuidv4 } from 'uuid';
 
 // A small helper to clone shapes so we keep final snapshot
@@ -41,8 +42,8 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
   const shapeRef = useRef<any>(null);
 
   // Undo/Redo stacks
-  const undoStack = useRef<UndoRedoAction[]>([]);
-  const redoStack = useRef<UndoRedoAction[]>([]);
+  const undoStack = useRef<any[]>([]);
+  const redoStack = useRef<any[]>([]);
 
   const MAX_HISTORY = 50;
 
@@ -51,7 +52,11 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
     if (undoStack.current.length >= MAX_HISTORY) {
       undoStack.current.shift(); // Remove the oldest action
     }
-    undoStack.current.push(action);
+
+    // Serialize the action using MessagePack before pushing
+    const encodedAction = msgpack.encode(action);
+    undoStack.current.push(encodedAction);
+
     redoStack.current = [];
   };
 
@@ -203,9 +208,10 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
   // Undo the last action
   const undo = () => {
     if (undoStack.current.length === 0) return;
-    console.log(undoStack);
-    const lastAction = undoStack.current.pop()!;
-    redoStack.current.push(lastAction);
+    // Decode the last action from binary format
+    const lastAction = msgpack.decode(undoStack.current.pop()!) as UndoRedoAction;
+    // Push to redo stack (encoded in MessagePack)
+    redoStack.current.push(msgpack.encode(lastAction));
 
     console.log('shape type: ', lastAction);
     switch (lastAction.type) {
@@ -308,8 +314,11 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
   // Redo the last undone action
   const redo = () => {
     if (redoStack.current.length === 0) return;
-    const lastUndo = redoStack.current.pop()!;
-    undoStack.current.push(lastUndo);
+    // Decode the last undone action
+    const lastUndo = msgpack.decode(redoStack.current.pop()!) as UndoRedoAction;
+
+    // Push it back to the undo stack (encoded)
+    undoStack.current.push(msgpack.encode(lastUndo));
 
     // Add the shape back to state
     switch (lastUndo.type) {
