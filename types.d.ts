@@ -78,12 +78,15 @@ type CommentType = BaseShape & {
 };
 
 type SocketData = {
-  mouseEvent: 'MouseDown' | 'MouseUp' | 'MouseMove';
+  mouseEvent: 'MouseDown' | 'MouseUp' | 'MouseMove' | 'move';
   tool?: ToolType;
   x: number;
   y: number;
   color?: string;
   strokeWidth?: number;
+  id?: string;
+  userId: string;
+  pointer?: { x: number; y: number };
 };
 
 /* 

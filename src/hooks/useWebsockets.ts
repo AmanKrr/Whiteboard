@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-const WS_URL = 'ws://localhost:8000/ws'; // Update for production
+// const WS_URL = `ws://localhost:8000/ws/public`;
 
-export function useWebSocket() {
+export interface User {
+  activeUsers: string[];
+  roomId: string;
+  type: string;
+  avatar?: string; // if you want to show user avatar
+}
+
+export function useWebSocket(WS_URL: string) {
+  const [userId, setUserId] = useState<string>('');
   const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [activeUsers, setActiveUsers] = useState<User>({ activeUsers: [], roomId: '', type: '', avatar: '' });
+  const [cursors, setCursors] = useState<{ [key: string]: { userId: string; x: number; y: number } }>({});
   const [remoteLines, setRemoteLines] = useState<LineType[]>([]);
   const isDrawing = useRef(false);
   const shapeRef = useRef<any>(null);
-
-  console.log('re-rendering issue');
-
-  useEffect(() => {
-    console.log('remote line:', remoteLines);
-  }, [remoteLines]);
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
@@ -23,25 +27,39 @@ export function useWebSocket() {
     ws.onmessage = event => {
       const data = JSON.parse(event.data);
       if (data) {
-        const drawingData = data as SocketData;
-        if (drawingData['mouseEvent'] == 'MouseDown') {
-          if (drawingData['tool']) {
-            onMouseDown(drawingData['tool'], drawingData);
+        if (data.type === 'users') {
+          if (userId === '') {
+            setUserId(data.userId);
           }
-        } else if (drawingData['mouseEvent'] == 'MouseMove') {
-          if (data) {
+          setActiveUsers(data); // Update active users list
+        } else {
+          const drawingData = data as SocketData;
+          if (drawingData['mouseEvent'] == 'move') {
+            setCursors(prev => ({ ...prev, [data.userId]: { ...data } }));
+          }
+          if (drawingData['mouseEvent'] == 'MouseDown') {
+            if (drawingData['tool']) {
+              onMouseDown(drawingData['tool'], drawingData);
+            }
+          } else if (drawingData['mouseEvent'] == 'MouseMove') {
             const drawingData = data as SocketData;
             onMouseMove(drawingData);
+            setCursors(prev => ({ ...prev, [drawingData.userId]: { x: drawingData.pointer!.x, y: drawingData.pointer!.y, userId: drawingData.userId } }));
+          } else {
+            onMouseUp();
           }
-        } else {
-          onMouseUp();
         }
       }
     };
 
     setSocket(ws);
 
-    return () => ws.close(); // Clean up on unmount
+    return () => {
+      ws.close();
+      ws.onmessage = null;
+      ws.onopen = null;
+      ws.onclose = null;
+    }; // Clean up on unmount
   }, []);
 
   function onMouseDown(tool: ToolType, data: SocketData) {
@@ -81,11 +99,14 @@ export function useWebSocket() {
     }
   }
 
-  const sendMessage = (data: SocketData) => {
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(data));
-    }
-  };
+  const sendMessage = useCallback(
+    (data: SocketData) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(data));
+      }
+    },
+    [socket]
+  );
 
-  return { sendMessage, remoteLines };
+  return { sendMessage, remoteLines, activeUsers, cursors, setCursors, userId };
 }

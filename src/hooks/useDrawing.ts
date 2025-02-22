@@ -1,6 +1,6 @@
 'use client';
 import { debounce } from 'lodash';
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import * as msgpack from '@msgpack/msgpack';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -27,7 +27,7 @@ function getShapeType(tool: ToolType): keyof DrawingState {
   }
 }
 
-export function useDrawing(sendMessage: (data: SocketData) => void) {
+export function useDrawing(sendMessage: (data: SocketData) => void, userId: string) {
   // Separate states
   const [pencilLines, setPencilLines] = useState<LineType[]>([]);
   const [rectangles, setRectangles] = useState<RectangleType[]>([]);
@@ -48,7 +48,7 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
   const MAX_HISTORY = 50;
 
   // Helper to push an action onto the Undo stack
-  const pushToUndoStack = (action: UndoRedoAction) => {
+  const pushToUndoStack = useCallback((action: UndoRedoAction) => {
     if (undoStack.current.length >= MAX_HISTORY) {
       undoStack.current.shift(); // Remove the oldest action
     }
@@ -58,139 +58,134 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
     undoStack.current.push(encodedAction);
 
     redoStack.current = [];
-  };
+  }, []);
 
-  const pushToUndoStackDebounced = debounce(
-    (shapeType, oldShape, oldValue, newValue) => {
-      pushToUndoStack({
-        type: 'update',
-        shapeType,
-        shapeId: oldShape.id,
-        oldValue,
-        newValue
-      });
-    },
-    200 // Delay of 200ms
+  const pushToUndoStackDebounced = useMemo(
+    () =>
+      debounce((shapeType, oldShape, oldValue, newValue) => {
+        pushToUndoStack({
+          type: 'update',
+          shapeType,
+          shapeId: oldShape.id,
+          oldValue,
+          newValue
+        });
+      }, 200),
+    [pushToUndoStack]
   );
 
-  const startDrawing = (
-    tool: ToolType,
-    color: string,
-    strokeWidth: number,
-    x: number,
-    y: number,
-    textContent?: string,
-    imageUrl?: string,
-    onTextCallback: ((id: string) => void) | null = null
-  ) => {
-    isDrawing.current = true;
+  const startDrawing = useCallback(
+    (tool: ToolType, color: string, strokeWidth: number, x: number, y: number, textContent?: string, imageUrl?: string, onTextCallback: ((id: string) => void) | null = null) => {
+      isDrawing.current = true;
 
-    switch (tool) {
-      case 'pencil':
-        shapeRef.current = { id: uuidv4(), tool, points: [x, y], color, strokeWidth, type: 'pencil' };
-        setPencilLines(prev => [...prev, shapeRef.current]);
-        break;
+      switch (tool) {
+        case 'pencil':
+          shapeRef.current = { id: uuidv4(), tool, points: [x, y], color, strokeWidth, type: 'pencil' };
+          setPencilLines(prev => [...prev, shapeRef.current]);
+          break;
 
-      case 'rectangle':
-        shapeRef.current = { id: uuidv4(), tool, x, y, width: 0, height: 0, color, strokeWidth, type: 'rectangle' };
-        setRectangles(prev => [...prev, shapeRef.current]);
-        break;
+        case 'rectangle':
+          shapeRef.current = { id: uuidv4(), tool, x, y, width: 0, height: 0, color, strokeWidth, type: 'rectangle' };
+          setRectangles(prev => [...prev, shapeRef.current]);
+          break;
 
-      case 'circle':
-        shapeRef.current = { id: uuidv4(), tool, x, y, radius: 0, color, strokeWidth, type: 'circle' };
-        setCircles(prev => [...prev, shapeRef.current]);
-        break;
+        case 'circle':
+          shapeRef.current = { id: uuidv4(), tool, x, y, radius: 0, color, strokeWidth, type: 'circle' };
+          setCircles(prev => [...prev, shapeRef.current]);
+          break;
 
-      case 'arrow':
-        shapeRef.current = { id: uuidv4(), tool, points: [x, y, x, y], color, strokeWidth, type: 'arrow' };
-        setArrows(prev => [...prev, shapeRef.current]);
-        break;
+        case 'arrow':
+          shapeRef.current = { id: uuidv4(), tool, points: [x, y, x, y], color, strokeWidth, type: 'arrow' };
+          setArrows(prev => [...prev, shapeRef.current]);
+          break;
 
-      case 'text':
-        if (!textContent) return; // Prevent adding empty text
-        const id = uuidv4();
-        if (onTextCallback) onTextCallback(id);
-        setTexts(prev => [...prev, { id: uuidv4(), tool, x, y, text: textContent, color, fontSize: 24 }]);
-        break;
+        case 'text':
+          if (!textContent) return; // Prevent adding empty text
+          const id = uuidv4();
+          if (onTextCallback) onTextCallback(id);
+          setTexts(prev => [...prev, { id: uuidv4(), tool, x, y, text: textContent, color, fontSize: 24 }]);
+          break;
 
-      // case 'image':
-      //   if (!imageUrl) return; // Prevent adding empty images
-      //   setImages(prev => [...prev, { id: uuidv4(), tool, x, y, src: imageUrl, width: 100, height: 100 }]);
-      //   break;
+        // case 'image':
+        //   if (!imageUrl) return; // Prevent adding empty images
+        //   setImages(prev => [...prev, { id: uuidv4(), tool, x, y, src: imageUrl, width: 100, height: 100 }]);
+        //   break;
 
-      // case 'comment':
-      //   setComments(prev => [...prev, { id: uuidv4(), tool, x, y, text: 'New comment', color: 'black', fontSize: 14 }]);
-      //   break;
+        // case 'comment':
+        //   setComments(prev => [...prev, { id: uuidv4(), tool, x, y, text: 'New comment', color: 'black', fontSize: 14 }]);
+        //   break;
 
-      default:
-        break;
-    }
+        default:
+          break;
+      }
 
-    if (shapeRef.current) {
-      sendMessage({ mouseEvent: 'MouseDown', tool, ...shapeRef.current });
-    }
-  };
+      if (shapeRef.current) {
+        sendMessage({ mouseEvent: 'MouseDown', tool, ...shapeRef.current, userId: userId });
+      }
+    },
+    [sendMessage, userId]
+  );
 
-  const continueDrawing = (x: number, y: number) => {
-    if (!isDrawing.current || !shapeRef.current) return; // Ensure shapeRef.current is valid
+  const continueDrawing = useCallback(
+    (x: number, y: number, pointer: any) => {
+      sendMessage({ mouseEvent: 'MouseMove', x, y, userId, tool: shapeRef.current?.tool, pointer: { x: pointer.x, y: pointer.y } });
+      if (!isDrawing.current || !shapeRef.current) return; // Ensure shapeRef.current is valid
 
-    switch (shapeRef.current.tool) {
-      case 'pencil':
-        setPencilLines(prev => {
-          if (prev.length === 0) return prev; // Ensure there's something to update
-          const updated = [...prev];
-          const lastIndex = updated.length - 1;
-          updated[lastIndex] = { ...updated[lastIndex], points: [...updated[lastIndex].points, x, y] };
-          shapeRef.current = updated[lastIndex];
-          return updated;
-        });
-        break;
+      switch (shapeRef.current.tool) {
+        case 'pencil':
+          setPencilLines(prev => {
+            if (prev.length === 0) return prev; // Ensure there's something to update
+            const updated = [...prev];
+            const lastIndex = updated.length - 1;
+            updated[lastIndex] = { ...updated[lastIndex], points: [...updated[lastIndex].points, x, y] };
+            shapeRef.current = updated[lastIndex];
+            return updated;
+          });
+          break;
 
-      case 'rectangle':
-        setRectangles(prev => {
-          if (!shapeRef.current) return prev; // Additional safety check
-          const updated = [...prev];
-          const lastIndex = updated.length - 1;
-          updated[lastIndex] = { ...updated[lastIndex], width: x - shapeRef.current.x, height: y - shapeRef.current.y };
-          shapeRef.current = updated[lastIndex];
-          return updated;
-        });
-        break;
+        case 'rectangle':
+          setRectangles(prev => {
+            if (!shapeRef.current) return prev; // Additional safety check
+            const updated = [...prev];
+            const lastIndex = updated.length - 1;
+            updated[lastIndex] = { ...updated[lastIndex], width: x - shapeRef.current.x, height: y - shapeRef.current.y };
+            shapeRef.current = updated[lastIndex];
+            return updated;
+          });
+          break;
 
-      case 'circle':
-        if (!shapeRef.current) return; // Prevent null reference
-        const radius = Math.sqrt(Math.pow(x - shapeRef.current.x, 2) + Math.pow(y - shapeRef.current.y, 2));
-        setCircles(prev => {
-          if (prev.length === 0) return prev; // Ensure there's something to update
-          const updated = [...prev];
-          const lastIndex = updated.length - 1;
-          updated[lastIndex] = { ...updated[lastIndex], radius };
-          shapeRef.current = updated[lastIndex];
-          return updated;
-        });
-        break;
+        case 'circle':
+          if (!shapeRef.current) return; // Prevent null reference
+          const radius = Math.sqrt(Math.pow(x - shapeRef.current.x, 2) + Math.pow(y - shapeRef.current.y, 2));
+          setCircles(prev => {
+            if (prev.length === 0) return prev; // Ensure there's something to update
+            const updated = [...prev];
+            const lastIndex = updated.length - 1;
+            updated[lastIndex] = { ...updated[lastIndex], radius };
+            shapeRef.current = updated[lastIndex];
+            return updated;
+          });
+          break;
 
-      case 'arrow':
-        setArrows(prev => {
-          if (!shapeRef.current) return prev;
-          const updated = [...prev];
-          const lastIndex = updated.length - 1;
-          updated[lastIndex] = { ...updated[lastIndex], points: [shapeRef.current.points[0], shapeRef.current.points[1], x, y] };
-          shapeRef.current = updated[lastIndex];
-          return updated;
-        });
-        break;
+        case 'arrow':
+          setArrows(prev => {
+            if (!shapeRef.current) return prev;
+            const updated = [...prev];
+            const lastIndex = updated.length - 1;
+            updated[lastIndex] = { ...updated[lastIndex], points: [shapeRef.current.points[0], shapeRef.current.points[1], x, y] };
+            shapeRef.current = updated[lastIndex];
+            return updated;
+          });
+          break;
 
-      default:
-        break;
-    }
+        default:
+          break;
+      }
+    },
+    [sendMessage, userId]
+  );
 
-    if (shapeRef.current) {
-      sendMessage({ mouseEvent: 'MouseMove', x, y });
-    }
-  };
-
-  const stopDrawing = () => {
+  const stopDrawing = useCallback(() => {
     if (shapeRef.current) {
       // Get final shape type
       const shapeType = getShapeType(shapeRef.current.tool);
@@ -198,22 +193,20 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
       const finalShape = cloneShape(shapeRef.current);
       // Now push to the undo stack as an 'add' action
       pushToUndoStack({ type: 'add', shapeType, shape: finalShape });
-      sendMessage({ mouseEvent: 'MouseUp', ...shapeRef.current });
+      sendMessage({ mouseEvent: 'MouseUp', ...shapeRef.current, userId });
     }
     isDrawing.current = false;
     shapeRef.current = null;
-    console.log('Shapes Data:', { pencilLines, rectangles, circles, arrows });
-  };
+  }, [pushToUndoStack, sendMessage, userId]);
 
   // Undo the last action
-  const undo = () => {
+  const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     // Decode the last action from binary format
     const lastAction = msgpack.decode(undoStack.current.pop()!) as UndoRedoAction;
     // Push to redo stack (encoded in MessagePack)
     redoStack.current.push(msgpack.encode(lastAction));
 
-    console.log('shape type: ', lastAction);
     switch (lastAction.type) {
       case 'add': {
         // Remove the shape from state
@@ -309,10 +302,10 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
         break;
       }
     }
-  };
+  }, []);
 
   // Redo the last undone action
-  const redo = () => {
+  const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
     // Decode the last undone action
     const lastUndo = msgpack.decode(redoStack.current.pop()!) as UndoRedoAction;
@@ -414,92 +407,98 @@ export function useDrawing(sendMessage: (data: SocketData) => void) {
         break;
       }
     }
-  };
+  }, []);
 
-  function updateStackHelper<T extends BaseShape | ArrowType>(oldShape: T, options: { color: string; strokeWidth: number; type: ToolType }) {
-    const { color, strokeWidth, type } = options;
-    const shapeType = getShapeType(type);
+  const updateStackHelper = useCallback(
+    <T extends BaseShape | ArrowType>(oldShape: T, options: { color: string; strokeWidth: number; type: ToolType }) => {
+      const { color, strokeWidth, type } = options;
+      const shapeType = getShapeType(type);
 
-    // Values for undo
-    const oldValue = {
-      color: oldShape!.color!,
-      strokeWidth: oldShape!.strokeWidth!
-    } as Partial<T>;
+      // Values for undo
+      const oldValue = {
+        color: oldShape!.color!,
+        strokeWidth: oldShape!.strokeWidth!
+      } as Partial<T>;
 
-    // Construct the new shape by merging oldShape with changes
-    const newShape: T = {
-      ...oldShape,
-      color: color ?? oldShape.color,
-      strokeWidth: strokeWidth ?? oldShape.strokeWidth
-    };
+      // Construct the new shape by merging oldShape with changes
+      const newShape: T = {
+        ...oldShape,
+        color: color ?? oldShape.color,
+        strokeWidth: strokeWidth ?? oldShape.strokeWidth
+      };
 
-    // Values for redo
-    const newValue = {
-      color: newShape.color,
-      strokeWidth: newShape.strokeWidth
-    } as Partial<T>;
+      // Values for redo
+      const newValue = {
+        color: newShape.color,
+        strokeWidth: newShape.strokeWidth
+      } as Partial<T>;
 
-    pushToUndoStackDebounced(shapeType, oldShape, oldValue, newValue);
+      pushToUndoStackDebounced(shapeType, oldShape, oldValue, newValue);
 
-    // Return the newly updated shape if you need it
-    return newShape;
-  }
+      // Return the newly updated shape if you need it
+      return newShape;
+    },
+    [pushToUndoStackDebounced]
+  );
 
-  const updateDrawing = (id: string, type: ToolType, color: string | null = null, strokeWidth: number | null = null) => {
-    switch (type) {
-      case 'rectangle':
-        setRectangles((prev: RectangleType[]) => {
-          if (prev) {
-            return prev.map((items: RectangleType) => {
-              if (items['id'] == id && (color || strokeWidth)) {
-                const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
-                return newShape;
-              }
+  const updateDrawing = useCallback(
+    (id: string, type: ToolType, color: string | null = null, strokeWidth: number | null = null) => {
+      switch (type) {
+        case 'rectangle':
+          setRectangles((prev: RectangleType[]) => {
+            if (prev) {
+              return prev.map((items: RectangleType) => {
+                if (items['id'] == id && (color || strokeWidth)) {
+                  const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
+                  return newShape;
+                }
 
-              return items;
-            });
-          }
+                return items;
+              });
+            }
 
-          return prev;
-        });
-        break;
-      case 'circle':
-        setCircles((prev: CircleType[]) => {
-          if (prev) {
-            return prev.map((items: CircleType) => {
-              if (items['id'] == id && (color || strokeWidth)) {
-                const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
-                return newShape;
-              }
+            return prev;
+          });
+          break;
+        case 'circle':
+          setCircles((prev: CircleType[]) => {
+            if (prev) {
+              return prev.map((items: CircleType) => {
+                if (items['id'] == id && (color || strokeWidth)) {
+                  const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
+                  return newShape;
+                }
 
-              return items;
-            });
-          }
+                return items;
+              });
+            }
 
-          return prev;
-        });
-        break;
-      case 'arrow':
-        setArrows((prev: ArrowType[]) => {
-          if (prev) {
-            return prev.map((items: ArrowType) => {
-              if (items['id'] == id && (color || strokeWidth)) {
-                const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
-                return newShape;
-              }
+            return prev;
+          });
+          break;
+        case 'arrow':
+          setArrows((prev: ArrowType[]) => {
+            if (prev) {
+              return prev.map((items: ArrowType) => {
+                if (items['id'] == id && (color || strokeWidth)) {
+                  const newShape = updateStackHelper(items, { color: color!, strokeWidth: strokeWidth!, type });
+                  return newShape;
+                }
 
-              return items;
-            });
-          }
+                return items;
+              });
+            }
 
-          return prev;
-        });
-        break;
+            return prev;
+          });
+          break;
 
-      default:
-        break;
-    }
-  };
+        default:
+          break;
+      }
+    },
+    [updateStackHelper]
+  );
 
   return { pencilLines, rectangles, circles, arrows, texts, images, comments, startDrawing, continueDrawing, stopDrawing, updateDrawing, setTexts, redo, undo };
 }
